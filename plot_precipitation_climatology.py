@@ -1,4 +1,5 @@
 import argparse
+import pdb
 
 import xarray as xr
 import cartopy.crs as ccrs
@@ -14,7 +15,7 @@ def convert_pr_units(darray):
       darray (xarray.DataArray): Precipitation data
     
     """
-    
+    assert darray.units == 'kg m-2 s-1', "Program assumes input units are kg m-2 s-1"
     darray.data = darray.data * 86400
     darray.attrs['units'] = 'mm/day'
    
@@ -54,13 +55,38 @@ def create_plot(clim, model, season, gridlines=False, levels=None):
     plt.title(title)
 
 
+def apply_mask(darray, sftlf_file, realm):
+    """Mask ocean or land using a sftlf (land surface fraction) file.
+   
+    Args:
+     darray (xarray.DataArray): Data to mask
+     sftlf_file (str): Land surface fraction file
+     realm (str): Realm to mask
+   
+    """
+  
+    dset = xr.open_dataset(sftlf_file)
+    #- pdb.set_trace()  
+    assert realm in ['land', 'ocean'], """Valid realms are 'land' or 'ocean'"""
+    if realm == 'land':
+        masked_darray = darray.where(dset['sftlf'].data < 50)
+    else:
+        masked_darray = darray.where(dset['sftlf'].data > 50)   
+  
+    return masked_darray
+
+
 def main(inargs):
     """Run the program."""
 
     dset = xr.open_dataset(inargs.pr_file)
-    
+
     clim = dset['pr'].groupby('time.season').mean('time', keep_attrs=True)
     clim = convert_pr_units(clim)
+
+    if inargs.mask:
+        sftlf_file, realm = inargs.mask
+        clim = apply_mask(clim, sftlf_file, realm)
 
     create_plot(clim, dset.attrs['source_id'], inargs.season,
                 gridlines=inargs.gridlines, levels=inargs.cbar_levels)
@@ -79,6 +105,8 @@ if __name__ == '__main__':
                         help="Include gridlines on the plot")
     parser.add_argument("--cbar_levels", type=float, nargs='*', default=None,
                         help='list of levels / tick marks to appear on the colorbar')
+    parser.add_argument("--mask", type=str, nargs=2, metavar=('SFTLF_FILE', 'REALM'), default=None,
+                        help="""Provide sftlf file and realm to mask ('land' or 'ocean')""")
 
     args = parser.parse_args()
    
